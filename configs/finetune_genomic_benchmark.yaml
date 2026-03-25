@@ -1,0 +1,36 @@
+# MergeDNA Fine-tuning on Genomic Benchmark (8 tasks)
+# SFT evaluation following GenBench protocol
+
+# Data
+task_name: "human_enhancers_cohn"  # Override per-task
+max_seq_length: 4096
+
+# Model (load from pretrained)
+pretrain_ckpt: "./outputs/pretrain/checkpoint-100000.pt"
+vocab_size: 10
+embed_dim: 1024
+num_heads: 16
+local_encoder_layers: 4
+latent_encoder_layers: 20
+latent_decoder_layers: 4
+local_decoder_layers: 2
+window_size: 16
+use_flash_attn: true
+
+# Fine-tuning
+task_type: "sequence_classification"
+num_epochs: 10
+batch_size: 32
+learning_rate: 5.0e-5
+weight_decay: 0.01
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+use_amp: true
+
+# LoRA
+use_lora: true
+lora_rank: 8
+lora_alpha: 16
+
+# Output
+output_dir: "./outputs/finetune/genomic_benchmark"

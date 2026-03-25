@@ -1,0 +1,45 @@
+# MergeDNA Pre-training - Full Paper Reproduction (A800 80GB, Single GPU)
+#
+# Matches paper exactly:
+#   380M params, seq=4096, effective batch=32, 100K steps, AdamW lr=1e-4
+#
+# Estimated VRAM: ~55GB / 80GB
+# Estimated time: 100K steps × ~4s/step ≈ 111 hours (~4.6 days)
+
+# Data
+data_path: "./data/pretrain/multi_species_genomes"
+max_seq_length: 4096          # Paper: 4096
+
+# Model Architecture (380M parameters - identical to paper)
+vocab_size: 10
+embed_dim: 1024
+num_heads: 16
+local_encoder_layers: 4       # Paper: 4
+latent_encoder_layers: 20     # Paper: 20
+latent_decoder_layers: 4      # Paper: 4
+local_decoder_layers: 2       # Paper: 2
+window_size: 16
+dropout: 0.0
+use_flash_attn: true
+gradient_checkpointing: true  # Saves ~60% activation memory
+
+# Pre-training Objectives (same as paper)
+lambda_latent: 0.25           # Paper: 0.25
+compression_target: 0.5       # Paper: L ≈ N/2
+compression_variance: 0.1     # Paper: L ∈ [0.4N, 0.6N]
+
+# Training (matches paper effective settings)
+max_steps: 100000             # Paper: 100K
+batch_size: 8                 # Paper: 8 per GPU
+gradient_accumulation: 4      # Effective batch = 32 (paper: 4 GPUs × 8 = 32)
+learning_rate: 1.0e-4         # Paper: 1e-4
+weight_decay: 0.01
+warmup_steps: 2000            # Paper: 2000
+max_grad_norm: 1.0
+use_amp: true
+
+# System
+num_workers: 8
+log_interval: 100
+save_interval: 5000
+output_dir: "./outputs/pretrain_a800"

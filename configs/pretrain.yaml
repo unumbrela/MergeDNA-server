@@ -1,0 +1,43 @@
+# MergeDNA Pre-training Configuration
+# Paper: 380M params, 100K iterations, AdamW (lr=1e-4), max_seq_length=4096
+
+# Data
+data_path: "path/to/multi_species_genomes"  # HF dataset or local dir
+max_seq_length: 4096
+
+# Model Architecture (380M parameters)
+vocab_size: 10
+embed_dim: 1024
+num_heads: 16
+local_encoder_layers: 4    # Local Encoder: 4 LocalToMeAttention blocks
+latent_encoder_layers: 20  # Latent Encoder: 20 full-attention Transformer blocks
+latent_decoder_layers: 4   # Latent Decoder: 4 Transformer blocks
+local_decoder_layers: 2    # Local Decoder: 2 local-window attention layers
+window_size: 16            # Local window size w
+dropout: 0.0
+use_flash_attn: true
+
+# Pre-training Objectives
+lambda_latent: 0.25        # Weight for latent MTR loss
+compression_target: 0.5    # Target L/N ratio (L ≈ N/2)
+compression_variance: 0.1  # Variance for random sampling (L ∈ [0.4N, 0.6N])
+
+# Training
+max_steps: 100000
+batch_size: 8
+gradient_accumulation: 4   # Effective batch = 32
+learning_rate: 1.0e-4
+weight_decay: 0.01
+warmup_steps: 2000
+max_grad_norm: 1.0
+use_amp: true
+
+# System
+num_workers: 4
+log_interval: 100
+save_interval: 5000
+output_dir: "./outputs/pretrain"
+
+# Distributed (set via torchrun)
+# world_size: auto
+# local_rank: auto

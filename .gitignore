@@ -1,0 +1,66 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+nohup.out
+
+# Experiment tracking
+wandb/
+runs/
+tensorboard/
+
+# Training outputs / checkpoints
+outputs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Local caches
+.cache/
+
+# Dataset artifacts
+data/genomic_benchmark/
+data/nt_benchmark/
+data/gue_benchmark/
+data/pretrain/multi_species_genomes/
+data/pretrain/*.zip
+data/pretrain/*.gz
+
+# Keep lightweight download metadata if needed
+!data/pretrain/urls.txt
+
+# Large archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.bz2
+*.xz

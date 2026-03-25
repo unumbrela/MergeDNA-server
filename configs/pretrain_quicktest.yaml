@@ -1,0 +1,40 @@
+# MergeDNA Pre-training - Quick Test (~8 minutes)
+# Purpose: Verify the full pipeline works before committing to long training.
+
+# Data
+data_path: "./data/pretrain/multi_species_genomes"
+max_seq_length: 1024
+
+# Model (380M, same as paper)
+vocab_size: 10
+embed_dim: 1024
+num_heads: 16
+local_encoder_layers: 4
+latent_encoder_layers: 20
+latent_decoder_layers: 4
+local_decoder_layers: 2
+window_size: 16
+dropout: 0.0
+use_flash_attn: true
+gradient_checkpointing: true
+
+# Objectives
+lambda_latent: 0.25
+compression_target: 0.5
+compression_variance: 0.1
+
+# Quick test: 300 steps x 1.5s ≈ 8 minutes
+max_steps: 300
+batch_size: 2
+gradient_accumulation: 4
+learning_rate: 1.0e-4
+weight_decay: 0.01
+warmup_steps: 30
+max_grad_norm: 1.0
+use_amp: true
+
+# System
+num_workers: 4
+log_interval: 10
+save_interval: 300
+output_dir: "./outputs/pretrain_quicktest"
