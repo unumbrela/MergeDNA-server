@@ -110,6 +110,8 @@ Important notes:
   - `batch_size: 8`
   - `gradient_accumulation: 4`
   - `use_flash_attn: true`
+- If the server is a restricted container and dataloader workers fail to start,
+  lower `num_workers` in `configs/pretrain_a800.yaml` from `8` to `0` or `1`.
 
 ## 6. Minimal Transfer Checklist
 
