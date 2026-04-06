@@ -70,6 +70,19 @@ class FineTuneRunner:
             window_size=self.config.get("window_size", 16),
             use_flash_attn=self.config.get("use_flash_attn", True),
             gradient_checkpointing=self.config.get("gradient_checkpointing", False),
+            # MergeDNA-Long extensions
+            use_entropy_guided_merging=self.config.get("use_entropy_guided_merging", False),
+            entropy_weight=self.config.get("entropy_weight", 0.5),
+            entropy_model_hidden_dim=self.config.get("entropy_model_hidden_dim", 128),
+            entropy_model_kernel_size=self.config.get("entropy_model_kernel_size", 9),
+            entropy_aux_loss_weight=self.config.get("entropy_aux_loss_weight", 0.1),
+            use_learned_compression=self.config.get("use_learned_compression", False),
+            r_min_per_window=self.config.get("r_min_per_window", 1),
+            r_max_per_window=self.config.get("r_max_per_window", 8),
+            compression_loss_weight=self.config.get("compression_loss_weight", 0.1),
+            latent_encoder_type=self.config.get("latent_encoder_type", "transformer"),
+            ssm_type=self.config.get("ssm_type", "gated_deltanet"),
+            attention_layer_indices=self.config.get("attention_layer_indices", [5, 11, 17]),
         )
 
         if task_type == "sequence_classification":
@@ -210,8 +223,16 @@ class FineTuneRunner:
             preds = logits.argmax(dim=-1).cpu().numpy()
             labels = batch["labels"].cpu().numpy()
 
-            all_preds.extend(preds.tolist())
-            all_labels.extend(labels.tolist())
+            if logits.dim() == 3:
+                valid_mask = labels != -100
+                preds = preds[valid_mask]
+                labels = labels[valid_mask]
+            else:
+                preds = preds.reshape(-1)
+                labels = labels.reshape(-1)
+
+            all_preds.extend(np.asarray(preds).tolist())
+            all_labels.extend(np.asarray(labels).tolist())
 
         all_preds = np.array(all_preds)
         all_labels = np.array(all_labels)

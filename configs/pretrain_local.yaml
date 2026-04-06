@@ -27,9 +27,14 @@ gradient_checkpointing: true
 lambda_latent: 0.25
 compression_target: 0.5
 compression_variance: 0.1
+use_mtr: true
+use_latent_mtr: true
+use_amtm: true
+amtm_masking_strategy: "adaptive"
+random_mask_ratio: 0.15
 
 # Training - optimized for single RTX 5070 Ti
-max_steps: 20000              # Paper: 100K. Local: 20K (~11h overnight)
+max_steps: 100000             # Continue local training to 100K total steps
 batch_size: 4                 # Peak VRAM ~12GB
 gradient_accumulation: 4      # Effective batch = 16
 learning_rate: 1.0e-4

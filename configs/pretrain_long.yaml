@@ -1,0 +1,75 @@
+# MergeDNA-Long Pre-training (A800 80GB, Single GPU)
+#
+# 核心改进 vs MergeDNA:
+#   1. Entropy-Guided Token Merging (高信息区保留细粒度)
+#   2. Hybrid SSM-Attention Latent Encoder (17 DeltaNet + 3 Attention)
+#   3. Learned Compression Schedule (每层可学习的合并率)
+#   4. 32K上下文 (原始: 4K)
+#
+# 预计VRAM: ~55-65GB / 80GB
+# 预计时间: 100K步 × ~8s/步 ≈ 9天
+
+# Data
+data_path: "./data/pretrain/multi_species_genomes"
+max_seq_length: 32768
+
+# Model Architecture (与MergeDNA对齐的backbone)
+vocab_size: 10
+embed_dim: 1024
+num_heads: 16
+local_encoder_layers: 4
+latent_encoder_layers: 20
+latent_decoder_layers: 4
+local_decoder_layers: 2
+window_size: 16
+dropout: 0.0
+use_flash_attn: true
+gradient_checkpointing: true
+
+# === MergeDNA-Long 新增配置 ===
+
+# Entropy-Guided Token Merging
+use_entropy_guided_merging: true
+entropy_weight: 0.5
+entropy_model_hidden_dim: 128
+entropy_model_kernel_size: 9
+entropy_aux_loss_weight: 0.1
+
+# Learned Compression Schedule
+use_learned_compression: true
+r_min_per_window: 1
+r_max_per_window: 8
+compression_loss_weight: 0.1
+
+# Hybrid Latent Encoder
+latent_encoder_type: "hybrid"         # "transformer" | "hybrid"
+ssm_type: "gated_deltanet"            # "gated_deltanet" | "mamba2"
+attention_layer_indices: [5, 11, 17]  # 3层Full Attention @ 层6/12/18
+
+# 更激进的压缩 (32K → ~8K latent tokens)
+compression_target: 0.25
+compression_variance: 0.05
+
+# Pre-training Objectives (同MergeDNA论文)
+lambda_latent: 0.25
+use_mtr: true
+use_latent_mtr: true
+use_amtm: true
+amtm_masking_strategy: "adaptive"
+random_mask_ratio: 0.15
+
+# Training
+max_steps: 100000
+batch_size: 4
+gradient_accumulation: 8              # 有效batch = 32
+learning_rate: 1.0e-4
+weight_decay: 0.01
+warmup_steps: 2000
+max_grad_norm: 1.0
+use_amp: true
+
+# System
+num_workers: 8
+log_interval: 100
+save_interval: 5000
+output_dir: "./outputs/pretrain_long"

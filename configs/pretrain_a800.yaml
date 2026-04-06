@@ -27,6 +27,11 @@ gradient_checkpointing: true  # Saves ~60% activation memory
 lambda_latent: 0.25           # Paper: 0.25
 compression_target: 0.5       # Paper: L ≈ N/2
 compression_variance: 0.1     # Paper: L ∈ [0.4N, 0.6N]
+use_mtr: true
+use_latent_mtr: true
+use_amtm: true
+amtm_masking_strategy: "adaptive"
+random_mask_ratio: 0.15
 
 # Training (matches paper effective settings)
 max_steps: 100000             # Paper: 100K

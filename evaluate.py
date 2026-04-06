@@ -86,17 +86,27 @@ def run_evaluation(config: dict, checkpoint: str, task_name: str):
     """Run evaluation on a single task."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = DNACharTokenizer(max_length=config.get("max_seq_length", 4096))
+    gb_data_dir = (
+        config.get("genomic_benchmark_data_dir")
+        or config.get("data_path")
+    )
+    nt_data_dir = (
+        config.get("nt_benchmark_data_dir")
+        or config.get("data_path")
+    )
 
     # Load dataset
     if task_name in GenomicBenchmarkDataset.TASK_NAMES:
         test_ds = GenomicBenchmarkDataset(
             task_name=task_name, tokenizer=tokenizer, split="test",
             max_length=config.get("max_seq_length", 4096),
+            data_path=gb_data_dir,
         )
     else:
         test_ds = NTBenchmarkDataset(
             task_name=task_name, tokenizer=tokenizer, split="test",
             max_length=config.get("max_seq_length", 4096),
+            data_path=nt_data_dir,
         )
 
     test_loader = DataLoader(
@@ -142,10 +152,16 @@ def main():
                         choices=["genomic_benchmark", "nt_benchmark"])
     parser.add_argument("--task_name", type=str, default=None,
                         help="Specific task. If None, runs all tasks.")
+    parser.add_argument("--genomic_benchmark_data_dir", type=str, default=None)
+    parser.add_argument("--nt_benchmark_data_dir", type=str, default=None)
     args = parser.parse_args()
 
     with open(args.config) as f:
         config = yaml.safe_load(f)
+    if args.genomic_benchmark_data_dir:
+        config["genomic_benchmark_data_dir"] = args.genomic_benchmark_data_dir
+    if args.nt_benchmark_data_dir:
+        config["nt_benchmark_data_dir"] = args.nt_benchmark_data_dir
 
     if args.benchmark == "genomic_benchmark":
         tasks = [args.task_name] if args.task_name else GenomicBenchmarkDataset.TASK_NAMES

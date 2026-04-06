@@ -3,7 +3,25 @@
 
 # Data
 task_name: "human_enhancers_cohn"  # Override per-task
+genomic_benchmark_data_dir: "./data/genomic_benchmark_sequences"
+nt_benchmark_data_dir: "./data/nt_benchmark"
+gue_data_dir: "./data/gue_benchmark/GUE"
+lrb_data_dir: "./data/lrb"
+spliceai_data_dir: "./data/spliceai"
+protein_fitness_data_dir: "./data/protein_fitness"
+external_lrb_ref_dir: "./data/external_refs/genomics-long-range-benchmark"
+external_spliceai_ref_dir: "./data/external_refs/SpliceAI"
+external_proteingym_ref_dir: "./data/external_refs/ProteinGym"
 max_seq_length: 1024  # Must match pretrain config
+embedding_window_length: 1024
+embedding_window_stride: 1024
+spliceai_sequence_length: 10000
+spliceai_negatives_per_positive: 1
+lrb_eqtl_sequence_length: 20000
+lrb_bulk_rna_sequence_length: 40000
+protein_fitness_assays:
+  bacteria: "BLAT_ECOLX_Firnberg_2014"
+  human: "BRCA1_HUMAN_Findlay_2018"
 
 # Model (same as paper, must match pretrain_local)
 pretrain_ckpt: "./outputs/pretrain_local/checkpoint-20000.pt"

@@ -170,17 +170,35 @@ class MergeDNAPretrainLoss(nn.Module):
 
         return mask_N
 
+    def compute_random_mask(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        mask_ratio: float = 0.15,
+    ) -> torch.Tensor:
+        """Compute a random mask in input space for vanilla MTM ablations."""
+        noise = torch.rand_like(input_ids.float())
+        if attention_mask is not None:
+            noise = noise.masked_fill(~attention_mask.bool(), 2.0)
+        k_mask = max(1, int(mask_ratio * input_ids.shape[1]))
+        mask = torch.zeros_like(input_ids, dtype=torch.float32)
+        _, indices = noise.topk(k_mask, dim=-1, largest=False)
+        mask.scatter_(1, indices, 1.0)
+        if attention_mask is not None:
+            mask = mask * attention_mask.float()
+        return mask
+
     def forward(
         self,
         # Standard reconstruction path
-        logits_mtr: torch.Tensor,
+        logits_mtr: Optional[torch.Tensor] = None,
         # Latent reconstruction path (Local Encoder frozen)
-        logits_latent_mtr: torch.Tensor,
+        logits_latent_mtr: Optional[torch.Tensor] = None,
         # AMTM path
-        logits_amtm: torch.Tensor,
-        mask_N: torch.Tensor,
+        logits_amtm: Optional[torch.Tensor] = None,
+        mask_N: Optional[torch.Tensor] = None,
         # Targets
-        input_ids: torch.Tensor,
+        input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Compute total pre-training loss.
@@ -190,16 +208,28 @@ class MergeDNAPretrainLoss(nn.Module):
         Returns dict with individual and total losses.
         """
         # 1. Standard MTR loss
-        l_mtr = self.compute_mtr_loss(logits_mtr, input_ids, attention_mask)
+        assert input_ids is not None, "input_ids are required for pre-training losses"
+
+        zero = torch.tensor(0.0, device=input_ids.device, requires_grad=True)
+
+        l_mtr = (
+            self.compute_mtr_loss(logits_mtr, input_ids, attention_mask)
+            if logits_mtr is not None
+            else zero
+        )
 
         # 2. Latent MTR loss (Local Encoder frozen)
-        l_latent_mtr = self.compute_mtr_loss(
-            logits_latent_mtr, input_ids, attention_mask
+        l_latent_mtr = (
+            self.compute_mtr_loss(logits_latent_mtr, input_ids, attention_mask)
+            if logits_latent_mtr is not None
+            else zero
         )
 
         # 3. AMTM loss
-        l_amtm = self.compute_amtm_loss(
-            logits_amtm, input_ids, mask_N, attention_mask
+        l_amtm = (
+            self.compute_amtm_loss(logits_amtm, input_ids, mask_N, attention_mask)
+            if logits_amtm is not None and mask_N is not None
+            else zero
         )
 
         # Total loss

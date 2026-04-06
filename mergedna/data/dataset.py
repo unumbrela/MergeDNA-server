@@ -4,6 +4,7 @@ import os
 import csv
 import random
 import logging
+from pathlib import Path
 from typing import Optional, Dict, List
 
 import torch
@@ -41,6 +42,7 @@ class MultiSpeciesGenomeDataset(Dataset):
         self._record_len = 0  # bytes per line (including newline)
         self._num_lines = 0
         self._sequences: Optional[List[str]] = None  # fallback in-memory
+        self._file_handle = None  # lazy-opened in fixed-record mode per worker process
 
         self._load_data(data_path)
 
@@ -120,11 +122,13 @@ class MultiSpeciesGenomeDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         if self._file_path:
-            # Fixed-record: O(1) seek
+            # Fixed-record: O(1) seek. Keep one handle per worker process to
+            # avoid paying open/close overhead on every sample.
             offset = idx * self._record_len
-            with open(self._file_path, "rb") as f:
-                f.seek(offset)
-                seq = f.read(self._record_len).decode("ascii").strip()
+            if self._file_handle is None:
+                self._file_handle = open(self._file_path, "rb")
+            self._file_handle.seek(offset)
+            seq = self._file_handle.read(self._record_len).decode("ascii").strip()
         else:
             seq = self._sequences[idx]
 
@@ -144,6 +148,13 @@ class MultiSpeciesGenomeDataset(Dataset):
             "input_ids": encoded["input_ids"].squeeze(0),
             "attention_mask": encoded["attention_mask"].squeeze(0),
         }
+
+    def __del__(self):
+        if self._file_handle is not None:
+            try:
+                self._file_handle.close()
+            except Exception:
+                pass
 
 
 class GUEBenchmarkDataset(Dataset):
@@ -203,7 +214,17 @@ class GUEBenchmarkDataset(Dataset):
 
 
 class GenomicBenchmarkDataset(Dataset):
-    """Genomic Benchmark dataset (8 tasks) from HuggingFace."""
+    """Genomic Benchmark dataset (8 tasks).
+
+    Supports two valid sources:
+    1. Local full-sequence directories produced by the `genomic-benchmarks`
+       package: `<root>/<task>/<split>/<class_name>/*.txt`
+    2. HuggingFace datasets that already expose sequence and label columns.
+
+    Some mirrors only expose the raw coordinate CSV files from
+    `katielink/genomic-benchmarks`. Those files are not training-ready for this
+    project and are rejected with a clear error.
+    """
 
     TASK_NAMES = [
         "human_enhancers_cohn",
@@ -237,20 +258,134 @@ class GenomicBenchmarkDataset(Dataset):
         self._load_data(data_path)
 
     def _load_data(self, data_path: Optional[str]):
-        """Load from HuggingFace or local cache."""
-        try:
-            from datasets import load_dataset
-            ds = load_dataset(
-                "katielink/genomic-benchmarks",
-                self.task_name,
-                split="train" if self.split == "train" else "test",
-            )
-            self.sequences = ds["seq"]
-            self.labels = ds["label"]
-        except Exception as e:
+        """Load from local full-sequence data or a compatible HF dataset."""
+        task_dir = self._find_local_task_dir(data_path)
+        if task_dir is not None:
+            self._load_local(task_dir)
+            return
+
+        errors = []
+        for dataset_name in (
+            "InstaDeepAI/genomic-benchmarks",
+            "katielink/genomic-benchmarks",
+        ):
+            try:
+                self._load_huggingface(dataset_name)
+                return
+            except Exception as e:
+                errors.append(f"{dataset_name}: {e}")
+
+        details = "; ".join(errors) if errors else "no usable data source found"
+        raise ValueError(
+            f"Cannot load genomic benchmark {self.task_name}: {details}. "
+            "Expected full-sequence data with sequence/label columns, or a "
+            "local directory like `<root>/<task>/<split>/<class>/*.txt`. "
+            "The `katielink/genomic-benchmarks` mirror currently resolves to "
+            "raw coordinate CSVs rather than training-ready sequences. "
+            "Install `genomic-benchmarks` and run "
+            "`python scripts/download_data.py --dataset genomic_benchmark`, "
+            "then rerun with `--genomic_benchmark_data_dir ~/.genomic_benchmarks` "
+            "if needed."
+        )
+
+    def _candidate_roots(self, data_path: Optional[str]) -> List[Path]:
+        roots = []
+        for raw_path in (
+            data_path,
+            os.getenv("GENOMIC_BENCHMARK_DATA_DIR"),
+            str(Path(__file__).resolve().parents[2] / "data" / "genomic_benchmark"),
+            str(Path.home() / ".genomic_benchmarks"),
+        ):
+            if not raw_path:
+                continue
+            path = Path(raw_path).expanduser()
+            if path not in roots:
+                roots.append(path)
+        return roots
+
+    def _find_local_task_dir(self, data_path: Optional[str]) -> Optional[Path]:
+        for root in self._candidate_roots(data_path):
+            for candidate in (root, root / self.task_name):
+                split_dir = candidate / self.split
+                if not split_dir.is_dir():
+                    continue
+                if any(path.is_dir() for path in split_dir.iterdir()):
+                    return candidate
+        return None
+
+    def _load_local(self, task_dir: Path):
+        split_dir = task_dir / self.split
+        class_dirs = sorted(path for path in split_dir.iterdir() if path.is_dir())
+        if not class_dirs:
+            raise ValueError(f"No class directories found in {split_dir}")
+
+        class_to_label = {class_dir.name: idx for idx, class_dir in enumerate(class_dirs)}
+        for class_dir in class_dirs:
+            label = class_to_label[class_dir.name]
+            for seq_file in sorted(class_dir.iterdir()):
+                if not seq_file.is_file():
+                    continue
+                seq = self._read_sequence_file(seq_file)
+                if not seq:
+                    continue
+                self.sequences.append(seq)
+                self.labels.append(label)
+
+        if not self.sequences:
+            raise ValueError(f"No sequences found in {split_dir}")
+
+        logger.info(
+            "Genomic Benchmark %s [%s]: %d samples, %d classes (local: %s)",
+            self.task_name,
+            self.split,
+            len(self.sequences),
+            self.num_classes,
+            task_dir,
+        )
+
+    def _load_huggingface(self, dataset_name: str):
+        from datasets import load_dataset
+
+        ds = load_dataset(
+            dataset_name,
+            self.task_name,
+            split="train" if self.split == "train" else "test",
+        )
+
+        seq_col = next(
+            (col for col in ("sequence", "seq", "text") if col in ds.column_names),
+            None,
+        )
+        label_col = next(
+            (col for col in ("label", "labels", "target") if col in ds.column_names),
+            None,
+        )
+        if seq_col is None or label_col is None:
             raise ValueError(
-                f"Cannot load genomic benchmark {self.task_name}: {e}"
+                f"unsupported columns {list(ds.column_names)}"
             )
+
+        self.sequences = [str(seq).upper() for seq in ds[seq_col]]
+        self.labels = [int(label) for label in ds[label_col]]
+        logger.info(
+            "Genomic Benchmark %s [%s]: %d samples, %d classes (HF: %s)",
+            self.task_name,
+            self.split,
+            len(self.sequences),
+            self.num_classes,
+            dataset_name,
+        )
+
+    @staticmethod
+    def _read_sequence_file(path: Path) -> str:
+        chunks = []
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith(">"):
+                    continue
+                chunks.append(line)
+        return "".join(chunks).upper()
 
     @property
     def num_classes(self) -> int:
@@ -299,6 +434,14 @@ class NTBenchmarkDataset(Dataset):
 
     def _load_data(self, data_path: Optional[str]):
         """Load NT benchmark data from HuggingFace."""
+        local_errors = []
+        for root in self._candidate_roots(data_path):
+            try:
+                self._load_local(root)
+                return
+            except Exception as local_e:
+                local_errors.append(f"{root}: {local_e}")
+
         try:
             from datasets import load_dataset
             ds = load_dataset(
@@ -309,19 +452,54 @@ class NTBenchmarkDataset(Dataset):
             self.sequences = ds["sequence"]
             self.labels = ds["label"]
         except Exception as e:
-            if data_path and os.path.isdir(data_path):
-                self._load_local(data_path)
-            else:
-                raise ValueError(f"Cannot load NT benchmark {self.task_name}: {e}")
+            detail = "; ".join(local_errors) if local_errors else "no local cache found"
+            raise ValueError(
+                f"Cannot load NT benchmark {self.task_name}: HF={e}; local={detail}"
+            )
 
-    def _load_local(self, data_path: str):
-        """Load from local CSV files."""
+    def _candidate_roots(self, data_path: Optional[str]) -> List[Path]:
+        roots = []
+        for raw_path in (
+            data_path,
+            os.getenv("NT_BENCHMARK_DATA_DIR"),
+            str(Path(__file__).resolve().parents[2] / "data" / "nt_benchmark"),
+        ):
+            if not raw_path:
+                continue
+            path = Path(raw_path).expanduser()
+            if path not in roots:
+                roots.append(path)
+        return roots
+
+    def _load_local(self, data_path: Path):
+        """Load from local CSV files or the aggregated HF arrow cache."""
         import pandas as pd
-        fpath = os.path.join(data_path, self.task_name, f"{self.split}.csv")
-        if os.path.exists(fpath):
-            df = pd.read_csv(fpath)
+        from datasets import Dataset
+
+        csv_path = data_path / self.task_name / f"{self.split}.csv"
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
             self.sequences = df["sequence"].tolist()
             self.labels = df["label"].tolist()
+            return
+
+        arrow_split = "train" if self.split == "train" else "test"
+        arrow_paths = sorted(
+            data_path.glob(
+                f"InstaDeepAI___nucleotide_transformer_downstream_tasks/**/"
+                f"nucleotide_transformer_downstream_tasks-{arrow_split}.arrow"
+            )
+        )
+        if not arrow_paths:
+            raise FileNotFoundError("aggregated NT arrow cache not found")
+
+        ds = Dataset.from_file(str(arrow_paths[0]))
+        ds = ds.filter(lambda x: x["task"] == self.task_name)
+        if len(ds) == 0:
+            raise ValueError(f"task {self.task_name} not found in {arrow_paths[0]}")
+
+        self.sequences = ds["sequence"]
+        self.labels = ds["label"]
 
     @property
     def num_classes(self) -> int:

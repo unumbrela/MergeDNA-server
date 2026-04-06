@@ -1,6 +1,7 @@
 # OS / editor
 .DS_Store
 Thumbs.db
+.codex
 .idea/
 .vscode/
 *.swp
@@ -30,6 +31,7 @@ ENV/
 # Logs
 *.log
 nohup.out
+logs/
 
 # Experiment tracking
 wandb/
@@ -48,11 +50,16 @@ checkpoints/
 
 # Dataset artifacts
 data/genomic_benchmark/
+data/genomic_benchmark_sequences/
 data/nt_benchmark/
 data/gue_benchmark/
 data/pretrain/multi_species_genomes/
 data/pretrain/*.zip
 data/pretrain/*.gz
+data/external_refs/
+data/lrb/
+data/spliceai/
+data/protein_fitness/
 
 # Keep lightweight download metadata if needed
 !data/pretrain/urls.txt

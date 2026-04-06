@@ -23,6 +23,7 @@ import argparse
 import logging
 import yaml
 import json
+import time
 
 import torch
 import torch.distributed as dist
@@ -44,6 +45,47 @@ def load_config(config_path: str, overrides: dict = None) -> dict:
             if v is not None:
                 config[k] = v
     return config
+
+
+def _summary_path(name: str, output_dir: str) -> str:
+    return os.path.join(output_dir, f"{name.lower().replace(' ', '_')}_results.json")
+
+
+def _load_json(path: str):
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def _save_json(path: str, payload: dict):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+
+
+def _task_result_path(task_output_dir: str) -> str:
+    return os.path.join(task_output_dir, "results.json")
+
+
+def _load_existing_task_result(
+    task_name: str,
+    task_output_dir: str,
+    summary_name: str,
+    root_output_dir: str,
+):
+    result_path = _task_result_path(task_output_dir)
+    if os.path.exists(result_path):
+        payload = _load_json(result_path)
+        metrics = payload.get("metrics")
+        if metrics is not None:
+            return metrics
+        return payload
+
+    summary_path = _summary_path(summary_name, root_output_dir)
+    if os.path.exists(summary_path):
+        payload = _load_json(summary_path)
+        if task_name in payload and os.path.exists(os.path.join(task_output_dir, "best_model.pt")):
+            return payload[task_name]
+    return None
 
 
 def setup_distributed():
@@ -71,6 +113,19 @@ def run_pretrain(config: dict):
     runner.train()
 
 
+def run_distill(config: dict):
+    """Run knowledge distillation training for EfficientMergeDNA."""
+    from mergedna.training.distill import DistillRunner
+
+    local_rank, world_size = setup_distributed()
+    config["local_rank"] = local_rank
+    config["world_size"] = world_size
+    config["device"] = f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu"
+
+    runner = DistillRunner(config)
+    runner.train()
+
+
 def run_finetune(config: dict, task_name: str = None):
     """Run fine-tuning on a single task."""
     from mergedna.training.finetune import FineTuneRunner
@@ -87,6 +142,14 @@ def run_finetune(config: dict, task_name: str = None):
     tokenizer = DNACharTokenizer(max_length=config.get("max_seq_length", 4096))
     task = config["task_name"]
     max_len = config.get("max_seq_length", 4096)
+    gb_data_dir = (
+        config.get("genomic_benchmark_data_dir")
+        or config.get("data_path")
+    )
+    nt_data_dir = (
+        config.get("nt_benchmark_data_dir")
+        or config.get("data_path")
+    )
 
     # Determine dataset class
     gue_data_dir = config.get("gue_data_dir")
@@ -98,11 +161,19 @@ def run_finetune(config: dict, task_name: str = None):
         eval_split = "test" if os.path.exists(os.path.join(task_path, "test.csv")) else "dev"
         test_ds = GUEBenchmarkDataset(task_path, tokenizer, eval_split, max_len)
     elif task in GenomicBenchmarkDataset.TASK_NAMES:
-        train_ds = GenomicBenchmarkDataset(task, tokenizer, "train", max_len)
-        test_ds = GenomicBenchmarkDataset(task, tokenizer, "test", max_len)
+        train_ds = GenomicBenchmarkDataset(
+            task, tokenizer, "train", max_len, data_path=gb_data_dir
+        )
+        test_ds = GenomicBenchmarkDataset(
+            task, tokenizer, "test", max_len, data_path=gb_data_dir
+        )
     else:
-        train_ds = NTBenchmarkDataset(task, tokenizer, "train", max_len)
-        test_ds = NTBenchmarkDataset(task, tokenizer, "test", max_len)
+        train_ds = NTBenchmarkDataset(
+            task, tokenizer, "train", max_len, data_path=nt_data_dir
+        )
+        test_ds = NTBenchmarkDataset(
+            task, tokenizer, "test", max_len, data_path=nt_data_dir
+        )
 
     collator = FineTuneCollator()
     nw = config.get("num_workers", 4)
@@ -141,9 +212,34 @@ def run_finetune_all_gb(config: dict):
         task_config["output_dir"] = os.path.join(
             config.get("output_dir", "./outputs"), "gb", task_name
         )
+        if config.get("skip_existing"):
+            existing = _load_existing_task_result(
+                task_name,
+                task_config["output_dir"],
+                "GENOMIC BENCHMARK",
+                config.get("output_dir", "./outputs"),
+            )
+            if existing is not None:
+                logger.info(f"Skipping completed GB task: {task_name}")
+                all_results[task_name] = existing
+                if not os.path.exists(_task_result_path(task_config["output_dir"])):
+                    _save_json(
+                        _task_result_path(task_config["output_dir"]),
+                        {"task_name": task_name, "metrics": existing},
+                    )
+                continue
+        started_at = time.time()
         try:
             results = run_finetune(task_config, task_name=task_name)
             all_results[task_name] = results
+            _save_json(
+                _task_result_path(task_config["output_dir"]),
+                {
+                    "task_name": task_name,
+                    "metrics": results,
+                    "duration_seconds": time.time() - started_at,
+                },
+            )
         except Exception as e:
             logger.error(f"Failed on {task_name}: {e}")
             all_results[task_name] = {"error": str(e)}
@@ -172,9 +268,34 @@ def run_finetune_all_nt(config: dict):
         task_config["output_dir"] = os.path.join(
             config.get("output_dir", "./outputs"), "nt", task_name
         )
+        if config.get("skip_existing"):
+            existing = _load_existing_task_result(
+                task_name,
+                task_config["output_dir"],
+                "NT BENCHMARK",
+                config.get("output_dir", "./outputs"),
+            )
+            if existing is not None:
+                logger.info(f"Skipping completed NT task: {task_name}")
+                all_results[task_name] = existing
+                if not os.path.exists(_task_result_path(task_config["output_dir"])):
+                    _save_json(
+                        _task_result_path(task_config["output_dir"]),
+                        {"task_name": task_name, "metrics": existing},
+                    )
+                continue
+        started_at = time.time()
         try:
             results = run_finetune(task_config, task_name=task_name)
             all_results[task_name] = results
+            _save_json(
+                _task_result_path(task_config["output_dir"]),
+                {
+                    "task_name": task_name,
+                    "metrics": results,
+                    "duration_seconds": time.time() - started_at,
+                },
+            )
         except Exception as e:
             logger.error(f"Failed on {task_name}: {e}")
             all_results[task_name] = {"error": str(e)}
@@ -215,9 +336,34 @@ def run_finetune_all_gue(config: dict):
         task_config["output_dir"] = os.path.join(
             config.get("output_dir", "./outputs"), "gue", task_rel.replace("/", "_")
         )
+        if config.get("skip_existing"):
+            existing = _load_existing_task_result(
+                task_rel,
+                task_config["output_dir"],
+                "GUE BENCHMARK",
+                config.get("output_dir", "./outputs"),
+            )
+            if existing is not None:
+                logger.info(f"Skipping completed GUE task: {task_rel}")
+                all_results[task_rel] = existing
+                if not os.path.exists(_task_result_path(task_config["output_dir"])):
+                    _save_json(
+                        _task_result_path(task_config["output_dir"]),
+                        {"task_name": task_rel, "metrics": existing},
+                    )
+                continue
+        started_at = time.time()
         try:
             results = run_finetune(task_config, task_name=task_rel)
             all_results[task_rel] = results
+            _save_json(
+                _task_result_path(task_config["output_dir"]),
+                {
+                    "task_name": task_rel,
+                    "metrics": results,
+                    "duration_seconds": time.time() - started_at,
+                },
+            )
         except Exception as e:
             logger.error(f"Failed on {task_rel}: {e}")
             all_results[task_rel] = {"error": str(e)}
@@ -251,7 +397,7 @@ def _print_summary(name: str, all_results: dict, config: dict):
     # Save to JSON
     out_dir = config.get("output_dir", "./outputs")
     os.makedirs(out_dir, exist_ok=True)
-    summary_path = os.path.join(out_dir, f"{name.lower().replace(' ', '_')}_results.json")
+    summary_path = _summary_path(name, out_dir)
     with open(summary_path, "w") as f:
         json.dump(all_results, f, indent=2, default=str)
     logger.info(f"\n  Results saved to: {summary_path}")
@@ -261,7 +407,7 @@ def main():
     parser = argparse.ArgumentParser(description="MergeDNA Training")
     parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
     parser.add_argument("--mode", type=str, default="pretrain",
-                        choices=["pretrain", "finetune",
+                        choices=["pretrain", "distill", "finetune",
                                  "finetune_all_gb", "finetune_all_nt", "finetune_all_gue"],
                         help="Training mode")
     parser.add_argument("--task_name", type=str, default=None)
@@ -269,10 +415,13 @@ def main():
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--pretrain_ckpt", type=str, default=None)
     parser.add_argument("--gue_data_dir", type=str, default=None)
+    parser.add_argument("--genomic_benchmark_data_dir", type=str, default=None)
+    parser.add_argument("--nt_benchmark_data_dir", type=str, default=None)
     parser.add_argument("--learning_rate", type=float, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--num_epochs", type=int, default=None)
     parser.add_argument("--max_steps", type=int, default=None)
+    parser.add_argument("--skip_existing", action="store_true")
 
     args = parser.parse_args()
     config = load_config(
@@ -282,15 +431,20 @@ def main():
             "output_dir": args.output_dir,
             "pretrain_ckpt": args.pretrain_ckpt,
             "gue_data_dir": args.gue_data_dir,
+            "genomic_benchmark_data_dir": args.genomic_benchmark_data_dir,
+            "nt_benchmark_data_dir": args.nt_benchmark_data_dir,
             "learning_rate": args.learning_rate,
             "batch_size": args.batch_size,
             "num_epochs": args.num_epochs,
             "max_steps": args.max_steps,
+            "skip_existing": args.skip_existing,
         },
     )
 
     if args.mode == "pretrain":
         run_pretrain(config)
+    elif args.mode == "distill":
+        run_distill(config)
     elif args.mode == "finetune":
         run_finetune(config, task_name=args.task_name)
     elif args.mode == "finetune_all_gb":

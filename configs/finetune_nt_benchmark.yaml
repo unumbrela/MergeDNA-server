@@ -3,6 +3,7 @@
 
 # Data
 task_name: "H3"  # Override per-task
+nt_benchmark_data_dir: "./data/nt_benchmark"
 max_seq_length: 4096
 
 # Model (load from pretrained)

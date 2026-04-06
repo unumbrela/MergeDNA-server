@@ -1,0 +1,78 @@
+# EfficientMergeDNA Knowledge Distillation Config
+# Teacher: MergeDNA 380M (pretrained checkpoint)
+# Student: EfficientMergeDNA ~50M
+
+# ===== Teacher config (must match pretrained checkpoint) =====
+teacher_ckpt: "./outputs/pretrain_a800/checkpoint-100000.pt"
+teacher_embed_dim: 1024
+teacher_num_heads: 16
+teacher_local_encoder_layers: 4
+teacher_latent_encoder_layers: 20
+teacher_latent_decoder_layers: 4
+teacher_local_decoder_layers: 2
+teacher_window_size: 16
+teacher_compression_target: 0.5
+teacher_latent_encoder_type: "transformer"
+
+# ===== Student config =====
+embed_dim: 512
+num_heads: 8
+local_encoder_layers: 3
+latent_encoder_layers: 8
+latent_decoder_layers: 2
+local_decoder_layers: 1
+window_size: 16
+max_seq_length: 4096
+
+# Hybrid SSM-Attention latent encoder
+latent_encoder_type: "hybrid"
+ssm_type: "gated_deltanet"
+attention_layer_indices: [3, 7]
+
+# Aggressive compression (80%)
+compression_target: 0.2
+compression_variance: 0.05
+use_learned_compression: true
+r_min_per_window: 2
+r_max_per_window: 14
+
+# Entropy-guided merging
+use_entropy_guided_merging: true
+entropy_weight: 0.5
+entropy_model_hidden_dim: 64
+entropy_model_kernel_size: 9
+entropy_aux_loss_weight: 0.1
+compression_loss_weight: 0.1
+
+# Pre-training objectives (student also learns these)
+use_mtr: true
+use_latent_mtr: true
+use_amtm: true
+amtm_masking_strategy: "adaptive"
+lambda_latent: 0.25
+K_ratio: 0.5
+
+# ===== Distillation loss weights =====
+distill_merge_weight: 1.0       # Source matrix pattern distillation
+distill_latent_weight: 2.0      # Latent representation distillation
+distill_output_weight: 1.0      # Soft label KD
+distill_temperature: 4.0        # KD softmax temperature
+distill_task_weight: 1.0        # Original pretrain loss weight
+
+# ===== Training =====
+data_path: "./data/pretrain/multi_species_genomes"
+max_steps: 50000
+batch_size: 16
+gradient_accumulation: 2  # effective batch = 32
+learning_rate: 2.0e-4
+weight_decay: 0.01
+warmup_steps: 2000
+max_grad_norm: 1.0
+use_amp: true
+gradient_checkpointing: true
+
+# ===== System =====
+num_workers: 8
+log_interval: 100
+save_interval: 5000
+output_dir: "./outputs/efficient_distill"

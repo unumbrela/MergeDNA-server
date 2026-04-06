@@ -21,6 +21,11 @@ use_flash_attn: true
 lambda_latent: 0.25        # Weight for latent MTR loss
 compression_target: 0.5    # Target L/N ratio (L ≈ N/2)
 compression_variance: 0.1  # Variance for random sampling (L ∈ [0.4N, 0.6N])
+use_mtr: true
+use_latent_mtr: true
+use_amtm: true
+amtm_masking_strategy: "adaptive"
+random_mask_ratio: 0.15
 
 # Training
 max_steps: 100000

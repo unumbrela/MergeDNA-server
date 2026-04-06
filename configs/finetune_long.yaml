@@ -1,0 +1,75 @@
+# MergeDNA-Long Fine-tuning (A800 80GB)
+#
+# LoRA微调 on 下游基准 (GB / NT / GUE / LRB)
+# 模型参数必须与 pretrain_long.yaml 一致
+
+# Pre-trained checkpoint
+pretrain_ckpt: "./outputs/pretrain_long/checkpoint-100000.pt"
+
+# Model (必须与pretrain_long.yaml一致)
+vocab_size: 10
+embed_dim: 1024
+num_heads: 16
+local_encoder_layers: 4
+latent_encoder_layers: 20
+latent_decoder_layers: 4
+local_decoder_layers: 2
+window_size: 16
+use_flash_attn: true
+gradient_checkpointing: true
+
+# MergeDNA-Long (必须与pretrain_long.yaml一致)
+use_entropy_guided_merging: true
+entropy_weight: 0.5
+entropy_model_hidden_dim: 128
+entropy_model_kernel_size: 9
+use_learned_compression: true
+r_min_per_window: 1
+r_max_per_window: 8
+latent_encoder_type: "hybrid"
+ssm_type: "gated_deltanet"
+attention_layer_indices: [5, 11, 17]
+compression_target: 0.25
+
+# Fine-tuning
+task_type: "sequence_classification"
+max_seq_length: 32768
+num_epochs: 10
+batch_size: 16
+learning_rate: 5.0e-5
+weight_decay: 0.01
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+use_amp: true
+
+# LoRA
+use_lora: true
+lora_rank: 8
+lora_alpha: 16
+
+# Data paths
+genomic_benchmark_data_dir: "./data/genomic_benchmark_sequences"
+nt_benchmark_data_dir: "./data/nt_benchmark"
+gue_data_dir: "./data/gue_benchmark/GUE"
+lrb_data_dir: "./data/lrb"
+external_lrb_ref_dir: "./data/external_refs/genomics-long-range-benchmark"
+external_spliceai_ref_dir: "./data/external_refs/SpliceAI"
+external_proteingym_ref_dir: "./data/external_refs/ProteinGym"
+
+# LRB specific
+lrb_eqtl_sequence_length: 20000
+lrb_bulk_rna_sequence_length: 40000
+embedding_window_length: 32768
+embedding_window_stride: 32768
+
+# SpliceAI / Protein Fitness (同finetune_a800.yaml)
+spliceai_data_dir: "./data/spliceai"
+spliceai_sequence_length: 10000
+spliceai_negatives_per_positive: 1
+protein_fitness_data_dir: "./data/protein_fitness"
+protein_fitness_assays:
+  bacteria: "BLAT_ECOLX_Firnberg_2014"
+  human: "BRCA1_HUMAN_Findlay_2018"
+
+# Output
+output_dir: "./outputs/finetune_long"

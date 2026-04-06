@@ -3,6 +3,7 @@
 
 # Data
 task_name: "human_enhancers_cohn"  # Override per-task
+genomic_benchmark_data_dir: "./data/genomic_benchmark_sequences"
 max_seq_length: 4096
 
 # Model (load from pretrained)

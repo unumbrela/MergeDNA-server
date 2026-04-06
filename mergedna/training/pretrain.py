@@ -75,6 +75,24 @@ class PretrainRunner:
             max_seq_length=self.config.get("max_seq_length", 4096),
             lambda_latent=self.config.get("lambda_latent", 0.25),
             gradient_checkpointing=self.config.get("gradient_checkpointing", False),
+            use_mtr=self.config.get("use_mtr", True),
+            use_latent_mtr=self.config.get("use_latent_mtr", True),
+            use_amtm=self.config.get("use_amtm", True),
+            amtm_masking_strategy=self.config.get("amtm_masking_strategy", "adaptive"),
+            random_mask_ratio=self.config.get("random_mask_ratio", 0.15),
+            # MergeDNA-Long extensions
+            use_entropy_guided_merging=self.config.get("use_entropy_guided_merging", False),
+            entropy_weight=self.config.get("entropy_weight", 0.5),
+            entropy_model_hidden_dim=self.config.get("entropy_model_hidden_dim", 128),
+            entropy_model_kernel_size=self.config.get("entropy_model_kernel_size", 9),
+            entropy_aux_loss_weight=self.config.get("entropy_aux_loss_weight", 0.1),
+            use_learned_compression=self.config.get("use_learned_compression", False),
+            r_min_per_window=self.config.get("r_min_per_window", 1),
+            r_max_per_window=self.config.get("r_max_per_window", 8),
+            compression_loss_weight=self.config.get("compression_loss_weight", 0.1),
+            latent_encoder_type=self.config.get("latent_encoder_type", "transformer"),
+            ssm_type=self.config.get("ssm_type", "gated_deltanet"),
+            attention_layer_indices=self.config.get("attention_layer_indices", [5, 11, 17]),
         )
         self.model = MergeDNA(model_config).to(self.device)
 
@@ -255,9 +273,9 @@ class PretrainRunner:
                 self.scaler.scale(loss).backward()
 
                 total_loss += losses["loss"].item() / self.gradient_accumulation
-                loss_mtr_sum += losses["loss_mtr"].item() / self.gradient_accumulation
-                loss_latent_sum += losses["loss_latent_mtr"].item() / self.gradient_accumulation
-                loss_amtm_sum += losses["loss_amtm"].item() / self.gradient_accumulation
+                loss_mtr_sum += losses.get("loss_mtr", torch.tensor(0.0)).item() / self.gradient_accumulation
+                loss_latent_sum += losses.get("loss_latent_mtr", torch.tensor(0.0)).item() / self.gradient_accumulation
+                loss_amtm_sum += losses.get("loss_amtm", torch.tensor(0.0)).item() / self.gradient_accumulation
 
             # Update LR
             lr = self._get_lr(global_step)

@@ -1,0 +1,60 @@
+# MergeDNA-Long 本地调试配置（消费级GPU / CPU）
+# 用于验证代码正确性，不用于实际训练
+
+data_path: "./data/pretrain/multi_species_genomes"
+max_seq_length: 4096
+
+# 缩小模型
+vocab_size: 10
+embed_dim: 256
+num_heads: 4
+local_encoder_layers: 2
+latent_encoder_layers: 6
+latent_decoder_layers: 2
+local_decoder_layers: 1
+window_size: 16
+dropout: 0.0
+use_flash_attn: false
+gradient_checkpointing: false
+
+# MergeDNA-Long 改进
+use_entropy_guided_merging: true
+entropy_weight: 0.5
+entropy_model_hidden_dim: 64
+entropy_model_kernel_size: 5
+entropy_aux_loss_weight: 0.1
+
+use_learned_compression: true
+r_min_per_window: 1
+r_max_per_window: 8
+compression_loss_weight: 0.1
+
+latent_encoder_type: "hybrid"
+ssm_type: "gated_deltanet"
+attention_layer_indices: [2, 4]
+
+compression_target: 0.3
+compression_variance: 0.05
+
+# Pre-training objectives
+lambda_latent: 0.25
+use_mtr: true
+use_latent_mtr: true
+use_amtm: true
+amtm_masking_strategy: "adaptive"
+
+# Training (minimal)
+max_steps: 500
+batch_size: 2
+gradient_accumulation: 1
+learning_rate: 1.0e-4
+weight_decay: 0.01
+warmup_steps: 50
+max_grad_norm: 1.0
+use_amp: false
+
+num_workers: 2
+log_interval: 10
+save_interval: 100
+output_dir: "./outputs/pretrain_long_local"
+max_samples: 1000

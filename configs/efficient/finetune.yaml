@@ -1,0 +1,47 @@
+# EfficientMergeDNA Fine-tuning Config
+# Uses distilled ~50M checkpoint for downstream evaluation
+
+# ===== Model config (must match distilled checkpoint) =====
+embed_dim: 512
+num_heads: 8
+local_encoder_layers: 3
+latent_encoder_layers: 8
+latent_decoder_layers: 2
+local_decoder_layers: 1
+window_size: 16
+max_seq_length: 4096
+
+# Hybrid latent encoder
+latent_encoder_type: "hybrid"
+ssm_type: "gated_deltanet"
+attention_layer_indices: [3, 7]
+
+# Compression settings (same as distillation)
+compression_target: 0.2
+compression_variance: 0.05
+use_learned_compression: true
+r_min_per_window: 2
+r_max_per_window: 14
+use_entropy_guided_merging: true
+entropy_weight: 0.5
+entropy_model_hidden_dim: 64
+entropy_model_kernel_size: 9
+
+# ===== Fine-tuning =====
+pretrain_ckpt: "./outputs/efficient_distill/checkpoint-50000.pt"
+task_type: "sequence_classification"
+num_epochs: 10
+batch_size: 32
+learning_rate: 5.0e-5
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+use_amp: true
+
+# LoRA
+use_lora: true
+lora_rank: 8
+lora_alpha: 16
+
+# ===== System =====
+num_workers: 4
+output_dir: "./outputs/efficient_finetune"

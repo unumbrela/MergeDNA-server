@@ -29,12 +29,14 @@ class LocalWindowTokenMerging(nn.Module):
     Args:
         embed_dim: Hidden dimension D.
         window_size: Local window size w (default 16).
+        entropy_weight: Weight for entropy penalty in merge scores (0 = disabled).
     """
 
-    def __init__(self, embed_dim: int, window_size: int = 16):
+    def __init__(self, embed_dim: int, window_size: int = 16, entropy_weight: float = 0.0):
         super().__init__()
         self.embed_dim = embed_dim
         self.window_size = window_size
+        self.entropy_weight = entropy_weight
         # Lightweight grouping embedding (DTEM) for computing merge scores
         self.group_proj = nn.Linear(embed_dim, embed_dim // 4, bias=False)
 
@@ -44,6 +46,7 @@ class LocalWindowTokenMerging(nn.Module):
         source: torch.Tensor,
         r: int,
         attention_mask: Optional[torch.Tensor] = None,
+        entropy_scores: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -52,6 +55,9 @@ class LocalWindowTokenMerging(nn.Module):
                     S[i,j]=1 means original position i is in merged token j.
             r: Number of tokens to remove per window.
             attention_mask: [B, N], 1 for valid tokens.
+            entropy_scores: [B, N] per-position entropy in [0,1].  High values
+                            penalise merging (information-rich positions are
+                            kept).  None disables entropy guidance.
 
         Returns:
             x_merged: Merged tokens [B, N-total_r, D].
@@ -66,6 +72,8 @@ class LocalWindowTokenMerging(nn.Module):
             x = F.pad(x, (0, 0, 0, pad_len))
             if attention_mask is not None:
                 attention_mask = F.pad(attention_mask, (0, pad_len), value=0)
+            if entropy_scores is not None:
+                entropy_scores = F.pad(entropy_scores, (0, pad_len), value=0)
             # Pad source matrix columns
             source = F.pad(source, (0, pad_len))
 
@@ -79,6 +87,11 @@ class LocalWindowTokenMerging(nn.Module):
         metric = self.group_proj(x_win)  # [B*nw, w, D//4]
         metric = F.normalize(metric, dim=-1)
 
+        # Reshape entropy scores into windows if provided
+        entropy_win = None
+        if entropy_scores is not None and self.entropy_weight > 0:
+            entropy_win = entropy_scores.reshape(B * num_windows, w)
+
         # Bipartite soft matching within each window
         # Split into even/odd sets
         r_per_window = min(r, w // 2)
@@ -86,7 +99,8 @@ class LocalWindowTokenMerging(nn.Module):
             return x[:, :N, :], source[:, :, :N]
 
         merge_fn, unmerge_info = self._bipartite_soft_matching(
-            metric, r_per_window, attention_mask, B, num_windows, w
+            metric, r_per_window, attention_mask, B, num_windows, w,
+            entropy_win=entropy_win,
         )
 
         # Apply merge
@@ -111,8 +125,12 @@ class LocalWindowTokenMerging(nn.Module):
         B: int,
         num_windows: int,
         w: int,
+        entropy_win: Optional[torch.Tensor] = None,
     ):
         """Bipartite soft matching within local windows.
+
+        When *entropy_win* is provided, high-entropy tokens are penalised so
+        they are less likely to be selected for merging (they stay as keepers).
 
         Returns merge function and info needed for source matrix update.
         """
@@ -134,6 +152,18 @@ class LocalWindowTokenMerging(nn.Module):
                 # Mask invalid pairs
                 invalid = ~(mask_a.unsqueeze(-1).bool() & mask_b.unsqueeze(-2).bool())
                 scores = scores.masked_fill(invalid, -math.inf)
+
+            # --- Entropy-guided penalty ---
+            # For each token in set A, subtract its entropy score from the
+            # best-match similarity.  This means high-entropy (informative)
+            # tokens get *lower* effective similarity → sorted later →
+            # become keepers rather than merge sources.
+            if entropy_win is not None:
+                entropy_a = entropy_win[:, ::2]  # [Bw, w//2]
+                entropy_b = entropy_win[:, 1::2]  # [Bw, w//2]
+                # Penalise pairs where *either* token is high-entropy
+                pair_entropy = entropy_a.unsqueeze(-1) + entropy_b.unsqueeze(-2)  # [Bw, w//2, w//2]
+                scores = scores - self.entropy_weight * pair_entropy
 
             # Find best match for each token in set A
             node_max, node_idx = scores.max(dim=-1)  # [Bw, w//2]

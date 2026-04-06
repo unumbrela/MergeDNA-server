@@ -1,0 +1,24 @@
+# SAE (Sparse Autoencoder) Analysis Config for EfficientMergeDNA
+
+# Model checkpoint to analyze
+checkpoint: "./outputs/efficient_distill/checkpoint-50000.pt"
+teacher_checkpoint: "./outputs/pretrain_a800/checkpoint-100000.pt"
+
+# Data
+data_path: "./data/pretrain/multi_species_genomes"
+max_seq_length: 4096
+
+# Representation collection
+batch_size: 8
+max_batches: 500   # ~4000 sequences
+
+# SAE architecture
+sae_hidden_dim: 4096   # 8x expansion from 512
+sae_sparsity_lambda: 1.0e-3
+sae_top_k: 32          # TopK activation (0 = use ReLU + L1)
+sae_lr: 1.0e-3
+sae_epochs: 50
+sae_batch_size: 2048
+
+# Output
+output_dir: "./outputs/sae_analysis"
