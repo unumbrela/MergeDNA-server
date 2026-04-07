@@ -47,20 +47,6 @@ def load_config(config_path: str, overrides: dict = None) -> dict:
     return config
 
 
-def configure_torch_runtime(config: dict) -> None:
-    """Enable low-risk CUDA runtime optimizations."""
-    if not torch.cuda.is_available():
-        return
-
-    if config.get("allow_tf32", True):
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        try:
-            torch.set_float32_matmul_precision("high")
-        except Exception:
-            pass
-
-
 def _summary_path(name: str, output_dir: str) -> str:
     return os.path.join(output_dir, f"{name.lower().replace(' ', '_')}_results.json")
 
@@ -454,7 +440,6 @@ def main():
             "skip_existing": args.skip_existing,
         },
     )
-    configure_torch_runtime(config)
 
     if args.mode == "pretrain":
         run_pretrain(config)

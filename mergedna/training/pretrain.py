@@ -155,19 +155,14 @@ class PretrainRunner:
             else:
                 decay_params.append(param)
 
-        optim_groups = [
-            {"params": decay_params, "weight_decay": self.weight_decay},
-            {"params": no_decay_params, "weight_decay": 0.0},
-        ]
-        optim_kwargs = {
-            "lr": self.learning_rate,
-            "betas": (0.9, 0.95),
-        }
-        if self.device.type == "cuda" and self.config.get("fused_optimizer", True):
-            optim_kwargs["fused"] = True
-            logger.info("Using fused AdamW optimizer")
-
-        self.optimizer = torch.optim.AdamW(optim_groups, **optim_kwargs)
+        self.optimizer = torch.optim.AdamW(
+            [
+                {"params": decay_params, "weight_decay": self.weight_decay},
+                {"params": no_decay_params, "weight_decay": 0.0},
+            ],
+            lr=self.learning_rate,
+            betas=(0.9, 0.95),
+        )
 
         self.scaler = GradScaler("cuda", enabled=self.use_amp)
 
@@ -256,7 +251,7 @@ class PretrainRunner:
         logger.info(f"Device: {self.device}")
 
         while global_step < self.max_steps:
-            self.optimizer.zero_grad(set_to_none=True)
+            self.optimizer.zero_grad()
 
             for accum_step in range(self.gradient_accumulation):
                 batch = self._get_batch()
