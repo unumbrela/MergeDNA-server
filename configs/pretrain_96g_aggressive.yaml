@@ -1,14 +1,14 @@
-# MergeDNA Pre-training - 96GB GPU Throughput-Oriented Config
+# MergeDNA Pre-training - 96GB GPU Aggressive Throughput Probe
 #
-# Target hardware: RTX Pro 6000 / H100-class single GPU with ~96GB VRAM.
-# Keeps the effective batch at 32 while reducing gradient accumulation
-# overhead compared with the default A800 config.
+# Use this only after confirming that configs/pretrain_96g.yaml is stable.
+# This increases the effective batch beyond the paper setting in exchange
+# for higher throughput on 96GB-class GPUs.
 
 # Data
 data_path: "./data/pretrain/multi_species_genomes"
 max_seq_length: 4096
 
-# Model Architecture (same as the default pretrain config)
+# Model Architecture
 vocab_size: 10
 embed_dim: 1024
 num_heads: 16
@@ -33,7 +33,7 @@ random_mask_ratio: 0.15
 
 # Training
 max_steps: 100000
-batch_size: 32                # keeps effective batch = 32 with fewer accumulation passes
+batch_size: 48
 gradient_accumulation: 1
 learning_rate: 1.0e-4
 weight_decay: 0.01
@@ -45,4 +45,4 @@ use_amp: true
 num_workers: 16
 log_interval: 100
 save_interval: 2500
-output_dir: "./outputs/pretrain_a800"
+output_dir: "./outputs/pretrain_a800_aggressive"
