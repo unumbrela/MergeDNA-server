@@ -140,7 +140,7 @@ class MultiSpeciesGenomeDataset(Dataset):
         encoded = self.tokenizer(
             [seq],
             max_length=self.max_length,
-            padding=True,
+            padding=False,
             truncation=True,
         )
 
@@ -202,7 +202,7 @@ class GUEBenchmarkDataset(Dataset):
         encoded = self.tokenizer(
             [seq],
             max_length=self.max_length,
-            padding=True,
+            padding=False,
             truncation=True,
         )
 
@@ -401,7 +401,7 @@ class GenomicBenchmarkDataset(Dataset):
         encoded = self.tokenizer(
             [seq],
             max_length=self.max_length,
-            padding=True,
+            padding=False,
             truncation=True,
         )
 
@@ -515,7 +515,7 @@ class NTBenchmarkDataset(Dataset):
         encoded = self.tokenizer(
             [seq],
             max_length=self.max_length,
-            padding=True,
+            padding=False,
             truncation=True,
         )
 
